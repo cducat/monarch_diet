@@ -1,0 +1,42 @@
+---
+title: Effects of diet on the wing morphology and hue of the eastern migratory monarch
+  (Danaus plexippus)
+author: "Caitlin Ducat"
+subtitle: Preliminary data
+output:
+  html_document:
+    df_print: paged
+---
+
+#Data Description: (look up meta analysis examples)
+
+  The csv file (WingMeasurementsFinal.csv) contains measurements taken of both sets of wings harvested from monarch butterflies exposed to a dietary treatment. Each observation is data for one butterfly. Columns include sample ID (N/T for native or tropical diet treatment respectively, and an arbitrary number assignment), forewing length, forewing width, hindwing length, hindwing width, sex, treatment, forewing area, and hindwing area. Using these values, we calculated the next columns for each butterfly: forewing aspect ratio, (L-R wing length) asymmetry and (L-R wing area) asymmetry. Boxes containing asterisks denote wing damage or bending, thus excluding them from analysis. 
+  
+#Goals and Hypotheses: 
+  
+  The goal of this study is to compare the impacts of the non-native tropical milkweed (Asclepias curassavica) species and a native species, swamp milkweed (Asclepias incarnata) on the wing morphology and symmetry of monarch butterflies. Because A. curassavica contains significantly higher levels of toxic cardenolides than its native counterpart, I hypothesize that wing shape and symmetry will vary between adult monarchs reared on a larval diet of A. curassavica or A. incarnata. We predict, based on the suggestion by Batalden & Oberhauser (2015) that the shift in phenology toward A. curassavica may be contributing to migratory drop out along the Gulf Coast, that monarchs reared on A. curassavica will exhibit morphological traits consistent with lower flight success (shorter, broader forewings and lower aspect ratio), and possibly higher reproductive success. We also note that monarch wings are inherently sexually dimorphic. Because of the trade-off in energy allocation between reproduction and costly immune defenses leading to infection patterns varying between males and females (Lindsey & Altizer 2009), we expect that morphological patterns will also vary between males and females in response to the milkweed diet treatment. We will analyze the effects of both sex and diet on wing morphology and symmetry.
+  
+```{r}
+library(tidyverse)
+wingmeasurements <- read.csv('../data/WingMeasurementsFinal.csv')
+wingmeasurements$X <- NULL
+
+
+wings_summary <- wingmeasurements %>%
+group_by(Sex) %>%
+summarize(mean_forewingarea = mean(ForewingArea, na.rm=TRUE), mean_hindwingarea = mean(HindwingArea, na.rm=TRUE), mean_Faspectratio = mean(ForewingAspectRatio, na.rm=TRUE), mean_forelength = mean(ForewingLengthR, na.rm=TRUE), mean_hindlength = mean(HindwingLengthR, na.rm=TRUE), mean_LengthAsym = mean(L_R_LengthAsym, na.rm=TRUE))
+print(wings_summary)
+
+
+boxplot <- ggplot(data = wingmeasurements) +
+  geom_boxplot(mapping = aes(x= Sex, y= L_R_LengthAsym, fill=Treatment)) + 
+  theme_minimal() + 
+  labs(x="Sex", y="Length Asymmetry", title= "Wing Length Asymmetry (All)") +
+  theme(plot.title = element_text(hjust=0.5)) + 
+  geom_hline(yintercept=0, linetype="dashed", color="red")
+print(boxplot)
+
+```
+  
+  
+
