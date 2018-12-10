@@ -18,7 +18,7 @@ output:
   
 ```{r}
 library(tidyverse)
-wingmeasurements <- read.csv('../data/WingMeasurementsFinal.csv')
+wingmeasurements <- read.csv('./data/WingMeasurementsFinal.csv')
 wingmeasurements$X <- NULL
 
 
