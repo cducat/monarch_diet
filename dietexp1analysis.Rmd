@@ -1,0 +1,360 @@
+---
+title: "Diet Experiment 1 Morph Summarize"
+author: "Caitlin Ducat"
+date: "3/13/2020"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(nlme)
+library(pwr)
+library(ggplot2)
+library(ggpubr)
+```
+```{r power analyses}
+pwr.anova.test(k = 4, f = 0.25, sig.level = NULL, power = )
+
+```
+
+```{r write morph csv, include=FALSE}
+
+#Creating CSV file from the text files from software
+rawmorph<-data.frame()
+blist<-list.files("DietExp1 Morph Data")
+for(d in 1:length(blist))
+{
+  d.name<-paste("./DietExp1 Morph Data/",blist[d],sep="")
+  f<-list.files(d.name)
+  if(length(f) != 4) print(paste("Missing File in",d.name))
+  for(i in 1:length(f))
+  {
+    f.name<-paste(d.name,f[i],sep="/")
+    
+    rawmorph<-rbind(rawmorph,cbind(Specimen=blist[d],
+                                 Wing=strsplit(strsplit(f[i],split=" ")[[1]][2],split=".",fixed=TRUE)[[1]][1],
+                                 read.delim(f.name)))
+  }
+}
+write.csv(rawmorph,file="dietmorphraw.csv",row.names =FALSE)
+```
+
+```{r select/summarize}
+rm(list=ls())
+dietmorphraw<-read_csv("dietmorphraw.csv")
+wingmorph<-dietmorphraw %>% select(specimen="Specimen",wing="Wing",area="Area.cm.2.",length="Length.cm.",breadth="Breadth.cm.",roundness="Roundness",asp.ratio="Aspect.Ratio") 
+
+write.csv(wingmorph, file="morphclean.csv", row.names=FALSE) #contains only selected morph variables
+#I added infection status, sex, and separated specimen (#) from diet (N or T) manually in excel
+```
+
+```{r averaging wing measures}
+
+dietmorph <- read.csv("morphclean.csv")
+
+#****NEED TO STRING SPLIT SPECIMEN ID****
+#need to add sex... maybe to dietmorphraw.csv
+
+#removing duplicates (I scanned the data manually and selected by observation)
+dietmorph <- slice(dietmorph, -c(1,3,71,104,157))
+```
+
+```{r START HERE FOR NOW}
+dietmorph <- read.csv("morphclean.csv")
+
+#averaging area for hindwings and forewings; calculating area asymmetry
+dietmorph<-left_join(dietmorph, dietmorph %>% select(specimen,wing,area) %>% spread(key=wing,area) %>% 
+  transmute(specimen=specimen,fore.area=(LFW+RFW)/2,hind.area=(LHW+RHW)/2, 
+            fore.area.asym=LFW-RFW,hind.area.asym=LHW-RHW))
+
+#averaging length for hindwings and forewings; calculating length asymmetry
+dietmorph<-left_join(dietmorph, dietmorph %>% select(specimen,wing,length) %>% spread(key=wing,length) %>% 
+  transmute(specimen=specimen,fore.length=(LFW+RFW)/2,hind.length=(LHW+RHW)/2, 
+            fore.length.asym=LFW-RFW,hind.length.asym=LHW-RHW))
+
+#averaging width for hindwings and forewings
+dietmorph <- left_join(dietmorph, dietmorph %>% select(specimen,wing,breadth) %>% spread(key=wing,breadth) %>% transmute(specimen=specimen, fore.width=(LFW+RFW)/2, hind.width=(LHW+RHW)/2))
+
+#averaging forewing roundness
+dietmorph<-left_join(dietmorph, dietmorph %>% select(specimen,wing,roundness) %>% spread(key=wing,roundness) %>%
+  transmute(specimen=specimen,fore.round=(LFW+RFW)/2))
+
+#calculating aspect ratio
+dietmorph <- left_join(dietmorph, dietmorph %>% select(specimen,wing,asp.ratio) %>% spread(key=wing,asp.ratio) %>% transmute(specimen=specimen, fore.asp.ratio=(LFW+RFW)/2))
+
+
+
+dietmorph1 <- subset(dietmorph, wing=="LFW") #gets rid of duplicates
+dietmorph2 <- select(dietmorph1, -c(wing, area, length, breadth, roundness, asp.ratio)) #final product for analyses
+```
+
+```{r frequency tables}
+attach(dietmorph2)
+diet.table <- table(sex, diet, infection)
+print(diet.table)
+
+inf.table <- table(sex, infection)
+print(inf.table)
+```
+
+```{r forewing area}
+#Used gls instead of lme because predictor variables are categorical, not continuous. Thus it's not a linear model, but a generalized least squares regression. aov() is better than anova() in this scenario because it internally calls lm(), which fits the model
+
+#original model
+m1 <- gls(fore.area ~ diet + sex + infection, data=dietmorph2)
+m1aov <- aov(m1, type="marginal")
+anova(m1aov)
+
+#residuals plot
+m1resid <-resid(m1, type="response")
+plot(m1resid)
+
+#model with infeciton as random effect
+m1random <- lme(fore.area ~ diet+sex, random= ~1 | infection, data=dietmorph2)
+summary(m1random)
+
+#varIdent models
+mf1 <- varIdent(form=~1|diet)
+m1.vident <- gls(fore.area ~ diet+sex+infection, weights=mf1, data=dietmorph2)
+
+mf2 <- varIdent(form=~1|infection)
+m1.vident2 <- gls(fore.area ~ diet+sex+infection, weights=mf2)
+
+mf3 <- varIdent(form=~1|sex)
+m1.vident3 <- gls(fore.area ~ diet+sex+infection, weights=mf3)
+
+#AIC comparision of original and random models
+anova(m1, m1.vident, m1.vident2, m1.vident3) #retain original model
+
+#standardized results
+par(mfrow = c(1,2))
+plot(dietmorph2$diet, resid(m1, type="response"), cex.axis=.5,
+cex=.4, xlab="Diet", ylab="ordinary resid", cex.lab=.8)
+plot(dietmorph2$diet, resid(m1, type="normalized"), cex.axis=.5,
+cex=.4, xlab="Diet", ylab="standardized resid", cex.lab=.8)
+
+#standardized results v fitted values
+par(mfrow = c(1,2))
+plot(fitted(m1), resid(m1, type="normalized"), cex.axis=.5,
+cex=.4, xlab="fitted values", ylab="standardized resid", cex.lab=.8)
+plot(dietmorph2$diet, resid(m1, type="normalized"), cex.axis=.5,
+cex=.4, xlab="diet", ylab="standardized resid", cex.lab=.8)
+
+```
+
+```{r hindwing area}
+m2 <- gls(hind.area ~ diet + sex + infection, data=dietmorph2)
+m2aov <- aov(m2, type="marginal")
+anova(m2aov)
+
+m2resid <- resid(m2, type="response")
+plot(m2resid)
+
+m2random <- lme(hind.area ~ diet+sex, random= ~1 | infection, data=dietmorph2)
+summary(m2random)
+
+m2f1 <- varIdent(form=~1|diet)
+m2.vident <- gls(hind.area ~ diet+sex+infection, weights=mf1, data=dietmorph2)
+
+m2f2 <- varIdent(form=~1|infection)
+m2.vident2 <- gls(hind.area ~ diet+sex+infection, weights=mf2)
+
+m2f3 <- varIdent(form=~1|sex)
+m2.vident3 <- gls(hind.area ~ diet+sex+infection, weights=mf3)
+
+anova(m2, m2random, m2.vident, m2.vident2, m2.vident3) #retain original model
+```
+
+```{r forewing area symmetry}
+
+m3 <- gls(fore.area.asym ~ diet + sex + infection, data=dietmorph2)
+m3aov <- aov(m3, type="marginal")
+anova(m3aov)
+```
+
+```{r hindwing area asymmetry}
+m4 <- gls(hind.area.asym ~ diet + sex + infection, data=dietmorph2)
+m4aov <- aov(m4, type="marginal")
+anova(m4aov)
+```
+
+```{r forewing roundness}
+
+m5 <- gls(fore.round ~ diet + sex + infection, data=dietmorph2)
+m5aov <- aov(m5, type="marginal")
+anova(m5aov)
+```
+
+```{r forewing length and width}
+
+m6 <- gls(fore.length ~ diet + sex + infection, data=dietmorph2)
+m6aov <- aov(m6, type="marginal")
+anova(m6aov)
+
+m7 <- gls(fore.width ~ diet + sex + infection, data=dietmorph2)
+m7aov <- aov(m7, type="marginal")
+anova(m7aov)
+```
+
+```{r forewing aspect ratio}
+
+m8 <- gls(fore.asp.ratio ~ diet + sex + infection, data=dietmorph2)
+m8aov <- aov(m8, type="marginal")
+anova(m8aov)
+```
+
+```{r hindwing length and width}
+
+m9 <-gls(hind.length ~ diet + sex + infection, data=dietmorph2)
+m9aov <- aov(m9, type="marginal")
+anova(m9aov)
+
+m10 <- gls(hind.width ~ diet + sex + infection, data=dietmorph2)
+m10aov <- aov(m10, type="marginal")
+anova(m10aov)
+```
+
+```{r color exploratory analyses}
+#cleaned/averaged by hand
+dietcolor <- read_csv("DietExp1 Color Data/DietExp1_ColorClean.csv")
+dietcolor1 <- dietcolor[-48,] #this case is missing data
+
+c1<-gls(Redhue ~ Diet + Sex + Infection, data=dietcolor1) 
+c1aov <- aov(c1,type="marginal", data=dietcolor1)
+anova(c1aov)
+
+c2<-gls(Redsat ~ Diet + Sex + Infection, data=dietcolor1) 
+c2aov <- aov(c2, type="marginal", data=dietcolor1)
+anova(c2aov)
+
+c3<-gls(Redint ~ Diet + Sex + Infection, data=dietcolor1)
+c3aov <- aov(c3, type="marginal", data=dietcolor1)
+anova(c3aov)
+
+c4 <- gls(Melarea ~ Diet + Sex + Infection, data=dietcolor1)
+c4aov <- aov(c4, type="marginal", data=dietcolor1)
+anova(c4aov)
+
+c5 <- gls(Blkdens ~ Diet + Sex + Infection, data=dietcolor1)
+c5aov <- aov(c5, type="marginal", data=dietcolor1)
+anova(c5aov)
+
+```
+
+```{r morphology ANOVA plots}
+compare_means(fore.area ~ diet, data=dietmorph2)
+my_comparisons <- list(c("N", "T"))
+
+#Forewing morphology and symmetry
+dflength.plot <- ggboxplot(dietmorph2, x="diet", y="fore.length", fill="sex") +
+labs(y="Forewing Length", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on forewing length") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(dflength.plot)
+
+dfwidth.plot <- ggboxplot(dietmorph2, x="diet", y="fore.width", fill="sex") +
+labs(y="Forewing Width", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on forewing width") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(dfwidth.plot)
+
+dfarea.plot <- ggboxplot(dietmorph2, x="diet", y="fore.area", fill="sex") +
+labs(y="Forewing Area", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on forewing area") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(dfarea.plot)
+
+dfasym.plot <- ggboxplot(dietmorph2, x="diet", y="fore.area.asym", fill="sex") +
+labs(y="Forewing Asymmetry", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on forewing asymmetry") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(dfasym.plot)
+
+dfround.plot <- ggboxplot(dietmorph2, x="diet", y="fore.round", fill="sex") +
+labs(y="Roundness", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on forewing roundness") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(dfround.plot)
+
+
+#Hindwing morphology and symmetry
+dhlength.plot <- ggboxplot(dietmorph2, x="diet", y="hind.length", fill="sex") +
+labs(y="Hindwing Length", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on hindwing length") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(dhlength.plot)
+
+dharea.plot <- ggboxplot(dietmorph2, x="diet", y="hind.area", fill="sex") +
+labs(y="Hindwing Area", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on hindwing area") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(dharea.plot)
+
+dhasym.plot <- ggboxplot(dietmorph2, x="diet", y="hind.area.asym", fill="sex") +
+labs(y="Hindwing Asymmetry", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on hindwing asymmetry") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(dhasym.plot)
+  
+```
+
+```{r color ANOVA plots}
+
+redhue.plot <- ggboxplot(dietcolor1, x="Diet", y="Redhue", fill="Sex") +
+labs(y="Hue value", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on wing hue") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(redhue.plot)
+
+redsat.plot <- ggboxplot(dietcolor1, x="Diet", y="Redsat", fill="Sex") +
+labs(y="Saturation value", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on saturation of red pigment") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova", label="p.format")
+print(redsat.plot)
+
+redint.plot <- ggboxplot(dietcolor1, x="Diet", y="Redint", fill="Sex") +
+labs(y="Intensity value", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on red intensity") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova", label="p.format")
+print(redint.plot)
+
+melarea.plot <- ggboxplot(dietcolor1, x="Diet", y="Melarea", fill="Sex") +
+labs(y="Area of melanin", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on area of wing melanin") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova", label="p.format")
+print(melarea.plot)
+
+blkdens.plot <- ggboxplot(dietcolor1, x="Diet", y="Blkdens", fill="Sex") +
+labs(y="Density of melanin pigment", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on black pigment density") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova", label="p.format")
+print(blkdens.plot)
+
+```
+

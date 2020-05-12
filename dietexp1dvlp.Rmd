@@ -1,0 +1,144 @@
+---
+title: "Diet Exp1 Development"
+output: html_notebook
+---
+```{r setup}
+library("tidyverse")
+```
+
+
+```{r readData}
+
+ddata <- read.csv("Diet1DvlpDataClean.csv")
+ddata$Ins2<-as.Date(as.character(ddata$Ins2),format="%d-%b")  # fix the year problem
+ddata$Ins3<-as.Date(as.character(ddata$Ins3),format="%d-%b")
+ddata$Ins4<-as.Date(as.character(ddata$Ins4),format="%d-%b")
+ddata$Ins5<-as.Date(as.character(ddata$Ins5),format="%d-%b")
+ddata$HatchDate<-as.Date(as.character(ddata$HatchDate),format="%d-%b")
+ddata$PupDate<-as.Date(as.character(ddata$PupDate),format="%d-%b")
+ddata$EcloseDate<-as.Date(as.character(ddata$EcloseDate),format="%d-%b")
+summary(ddata)
+
+
+
+```
+
+```{r create RVs}
+ddata.tidy<-gather(ddata, key="stage",value="date",-LarvID,-Diet,-FamLine,-Infection,-Dead,-Sex, -X)
+ddata.tidy$stage<-factor(ddata.tidy$stage,levels=c("HatchDate","Ins2", "Ins3","Ins4","Ins5","PupDate","EcloseDate"))
+ddata.tidy$stageNum<-as.numeric(ddata.tidy$stage)-1
+
+  
+larvae_ids<-unique(ddata.tidy$LarvID)
+# for each larva, calculate development rate metrics
+overall_DR<-c()
+numDaysHatchToEclose<-c()
+hatchToIns5_DR<-c()
+numDaysHatchToIns5<-c()
+pupation<-c()
+critical_period<-c()
+
+for(i in 1:length(larvae_ids))
+{
+  larvaData<-ddata.tidy %>% filter(LarvID==larvae_ids[i])
+  # stages per day, all stages from Hatch to Eclose (or last stage reached)
+  overall_DR[i]<- 1/coef(lm(stageNum~date,data=larvaData))[2] 
+  # days from hatch to eclosure
+  numDaysHatchToEclose[i]<-larvaData$date[larvaData$stage=="EcloseDate"]-larvaData$date[larvaData$stage=="HatchDate"]
+  # stages from Hatch to 5th instar (or last stage reached)
+  hatchToIns5_DR[i]<-1/coef(lm(stageNum~date,data=larvaData %>% filter(stageNum<5)))[2] 
+  # days from hatching to 5th instar
+  numDaysHatchToIns5[i]<-larvaData$date[larvaData$stage=="Ins5"]-larvaData$date[larvaData$stage=="HatchDate"]
+  #duration of pupation
+  pupation[i]<-larvaData$date[larvaData$stage=="EcloseDate"]-larvaData$date[larvaData$stage=="PupDate"]
+  
+  #Period from 5th instar to pupa
+  critical_period[i]<-larvaData$date[larvaData$stage=="PupDate"]-larvaData$date[larvaData$stage=="Ins5"]
+}
+
+df<-data.frame(LarvID=larvae_ids,overall_DR=overall_DR,hatchToIns5_DR=hatchToIns5_DR,numDaysHatchToIns5=numDaysHatchToIns5,critical_period=critical_period)
+
+#put back into original data, remove comments column
+ddata<-left_join(ddata,df,by="LarvID")
+```
+
+```{r}
+
+summary(lm(overall_DR~Diet+Sex+Infection,data=ddata))
+summary(lm(hatchToIns5_DR~Diet+Sex+Infection,data=ddata))
+summary(lm(numDaysHatchToIns5~Diet+Sex+Infection, data=ddata))
+summary(lm(pupation~Diet+Sex+Infection,data=ddata))
+summary(lm(numDaysHatchToEclose~Diet+Sex+Infection, data=ddata))
+summary(lm(critical_period~Diet+Sex+Infection, data=ddata))
+
+
+compare_means(fore.area ~ dit, data=dietmorph2)
+my_comparisons <- list(c("N", "T"))
+
+```
+
+```{r Merging data frames for regressions}
+#change column name from 'LarvID' to 'specimen' in 'df' dataframe in order to merge dataframes by specimen
+
+names(df)[names(df)=="LarvID"] <- "specimen"
+
+#Merge dataframes -- morph and color with development rate
+
+jointdata <- merge(df, dietmorph2, by="specimen")
+
+#linear regressions 
+
+
+```
+
+```{r regression plots of development metrics against morph/color}
+
+compare_means(fore.area ~ diet, data=dietmorph2)
+my_comparisons <- list(c("N", "T"))
+
+avg_ODR <- mean(ddata[["overall_DR"]])
+
+N_avgODR <- ddata %>%
+  filter(diet=="N") %>%
+  group_by(stage, date) %>%
+  summarise(Navg = mean(overall_DR))
+
+plot <- ggplot(ddata, aes(x=date, y=stage) +
+  geom_line(stat="smooth", method="lm")) +
+  compare_means()
+
+linear <- lm(fore.area~overall_DR, data=jointdata)
+summary(linear)
+ 
+ggplot(jointdata, aes(x=hind.area, y=overall_DR)) +
+  geom_smooth(method=lm)
+
+```
+
+```{r development rate plots}
+#Individual development rates
+ggplot(data=ddata.tidy %>% filter(LarvID==17),aes(x=date,y=stage))+geom_point()+geom_smooth(aes(y=as.numeric(stage)),method="lm",se=FALSE) 
+
+#filter N, 
+
+#Plots for host plant species v. overall development rate/days to development
+overall_DR.plot <- ggboxplot(ddata, x="Diet", y="overall_DR", fill="lightblue") +
+labs(y="Overall Development Rate", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on development rate") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(overall_DR.plot)
+
+overall_days.plot <- ggboxplot(ddata, x="Diet", y="numDaysHatchToEclose", fill="lightblue") +
+labs(y="Number of Days", x = "Host Plant Species") + 
+ggtitle("Effects of host plant species on development rate") +
+theme_minimal() +
+scale_x_discrete(labels=c("N"="Native", "T"="Tropical")) +
+stat_compare_means(method="anova")
+print(overall_days.plot)
+ 
+
+```
+
+
